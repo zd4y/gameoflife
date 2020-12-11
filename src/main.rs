@@ -159,7 +159,7 @@ impl<'a> TuiGame<'a> {
         W: Write,
     {
         let (width, height) = termion::terminal_size().unwrap();
-        let game = Game::new(width, height - 1);
+        let game = Game::new(width, height);
         Self {
             game,
             stdin: Some(stdin),
@@ -167,7 +167,7 @@ impl<'a> TuiGame<'a> {
         }
     }
 
-    fn start(&mut self) {
+    fn run(&mut self) {
         writeln!(
             self.stdout,
             "{}{}{}",
@@ -179,8 +179,7 @@ impl<'a> TuiGame<'a> {
         self.render();
         self.stdout.flush().unwrap();
         self.listen_events();
-        write!(self.stdout, "{}{}", style::Reset, cursor::Show).unwrap();
-        self.stdout.flush().unwrap();
+        writeln!(self.stdout, "{}{}", style::Reset, cursor::Show).unwrap();
     }
 
     fn listen_events(&mut self) {
@@ -215,18 +214,18 @@ impl<'a> TuiGame<'a> {
     }
 
     fn render(&mut self) {
-        for (_, row) in self.game.cells.iter().enumerate() {
-            // let y = (a + 1) as u16;
-            for (_, cell) in row.iter().enumerate() {
-                // let x = (b + 1) as u16;
+        writeln!(self.stdout, "{}", cursor::Goto(1, 1)).unwrap();
+        for (a, row) in self.game.cells.iter().enumerate() {
+            let y = (a + 1) as u16;
+            write!(self.stdout, "{}\n\r", style::Reset).unwrap();
+            for (b, cell) in row.iter().enumerate() {
+                let x = (b + 1) as u16;
                 let color = match cell.is_alive() {
                     true => color::Rgb(255, 255, 255),
                     false => color::Rgb(0, 0, 0),
                 };
-                // write!(self.stdout, "{}{} ", cursor::Goto(x, y), color::Bg(color)).unwrap();
-                write!(self.stdout, "{} ", color::Bg(color)).unwrap();
+                write!(self.stdout, "{}{} ", cursor::Goto(x, y), color::Bg(color)).unwrap();
             }
-            write!(self.stdout, "{}\n\r", style::Reset).unwrap();
         }
     }
 
@@ -289,38 +288,5 @@ fn main() {
     let mut stdout = AlternateScreen::from(stdout);
 
     let mut game = TuiGame::new(&mut stdin, &mut stdout);
-    game.start();
+    game.run();
 }
-
-// fn main() {
-//     {
-//         let stdout = stdout().into_raw_mode().unwrap();
-//         let stdout = MouseTerminal::from(stdout);
-//         let mut stdout = AlternateScreen::from(stdout);
-
-//         let (width, height) = termion::terminal_size().unwrap();
-
-//         write!(stdout, "width: {}, height: {}", width, height).unwrap();
-//         stdout.flush().unwrap();
-//         std::thread::sleep(std::time::Duration::from_secs(4));
-//         write!(
-//             stdout,
-//             "{}{}{}hello",
-//             clear::All,
-//             cursor::Goto(1, 1),
-//             cursor::Hide
-//         )
-//         .unwrap();
-//         stdout.flush().unwrap();
-//         std::thread::sleep(std::time::Duration::from_secs(4));
-//         for a in 0..height {
-//             let y = (a) as u16;
-//             // for b in 0..width {
-//             //     let x = (b + 1) as u16;
-//             // }
-//             write!(stdout, "{}{}", cursor::Goto(1, y + 1), y).unwrap();
-//         }
-//         stdout.flush().unwrap();
-//         std::thread::sleep(std::time::Duration::from_secs(4))
-//     }
-// }
