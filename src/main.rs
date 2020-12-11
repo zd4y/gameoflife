@@ -148,44 +148,44 @@ impl Game {
 
 struct TuiGame<'a> {
     game: Game,
-    stdin: Option<Box<dyn Read>>,
+    stdin: Option<&'a mut dyn Read>,
     stdout: &'a mut dyn Write,
 }
 
 impl<'a> TuiGame<'a> {
-    fn new<R, W>(stdin: R, stdout: &'a mut W) -> Self
+    fn new<R, W>(stdin: &'a mut R, stdout: &'a mut W) -> Self
     where
-        R: Read + 'static,
+        R: Read,
         W: Write,
     {
-        writeln!(
+        let (width, height) = termion::terminal_size().unwrap();
+        let game = Game::new(width, height - 1);
+        Self {
+            game,
+            stdin: Some(stdin),
             stdout,
+        }
+    }
+
+    fn start(&mut self) {
+        writeln!(
+            self.stdout,
             "{}{}{}",
             cursor::Hide,
             clear::All,
             cursor::Goto(1, 1)
         )
         .unwrap();
-        stdout.flush().unwrap();
-
-        let (width, height) = termion::terminal_size().unwrap();
-        let game = Game::new(width, height - 1);
-        Self {
-            game,
-            stdin: Some(Box::new(stdin)),
-            stdout,
-        }
-    }
-
-    fn start(&mut self) {
         self.render();
         self.stdout.flush().unwrap();
         self.listen_events();
         write!(self.stdout, "{}{}", style::Reset, cursor::Show).unwrap();
+        self.stdout.flush().unwrap();
     }
 
     fn listen_events(&mut self) {
-        let events = self.stdin.take().unwrap().events();
+        let stdin = self.stdin.take().unwrap();
+        let events = stdin.events();
         for event in events {
             let event = event.unwrap();
             match event {
@@ -206,24 +206,25 @@ impl<'a> TuiGame<'a> {
             }
             self.stdout.flush().unwrap();
         }
+        self.stdin = Some(stdin);
     }
 
     fn tick(&mut self) {
         self.game.tick();
         self.render();
-        self.stdout.flush().unwrap();
     }
 
     fn render(&mut self) {
-        for (a, row) in self.game.cells.iter().enumerate() {
-            let y = (a + 1) as u16;
-            for (b, cell) in row.iter().enumerate() {
-                let x = (b + 1) as u16;
+        for (_, row) in self.game.cells.iter().enumerate() {
+            // let y = (a + 1) as u16;
+            for (_, cell) in row.iter().enumerate() {
+                // let x = (b + 1) as u16;
                 let color = match cell.is_alive() {
                     true => color::Rgb(255, 255, 255),
                     false => color::Rgb(0, 0, 0),
                 };
-                write!(self.stdout, "{}{} ", cursor::Goto(x, y), color::Bg(color)).unwrap();
+                // write!(self.stdout, "{}{} ", cursor::Goto(x, y), color::Bg(color)).unwrap();
+                write!(self.stdout, "{} ", color::Bg(color)).unwrap();
             }
             write!(self.stdout, "{}\n\r", style::Reset).unwrap();
         }
@@ -282,11 +283,44 @@ where
 }
 
 fn main() {
-    let stdin = stdin();
+    let mut stdin = stdin();
     let stdout = stdout().into_raw_mode().unwrap();
     let stdout = MouseTerminal::from(stdout);
     let mut stdout = AlternateScreen::from(stdout);
 
-    let mut game = TuiGame::new(stdin, &mut stdout);
+    let mut game = TuiGame::new(&mut stdin, &mut stdout);
     game.start();
 }
+
+// fn main() {
+//     {
+//         let stdout = stdout().into_raw_mode().unwrap();
+//         let stdout = MouseTerminal::from(stdout);
+//         let mut stdout = AlternateScreen::from(stdout);
+
+//         let (width, height) = termion::terminal_size().unwrap();
+
+//         write!(stdout, "width: {}, height: {}", width, height).unwrap();
+//         stdout.flush().unwrap();
+//         std::thread::sleep(std::time::Duration::from_secs(4));
+//         write!(
+//             stdout,
+//             "{}{}{}hello",
+//             clear::All,
+//             cursor::Goto(1, 1),
+//             cursor::Hide
+//         )
+//         .unwrap();
+//         stdout.flush().unwrap();
+//         std::thread::sleep(std::time::Duration::from_secs(4));
+//         for a in 0..height {
+//             let y = (a) as u16;
+//             // for b in 0..width {
+//             //     let x = (b + 1) as u16;
+//             // }
+//             write!(stdout, "{}{}", cursor::Goto(1, y + 1), y).unwrap();
+//         }
+//         stdout.flush().unwrap();
+//         std::thread::sleep(std::time::Duration::from_secs(4))
+//     }
+// }

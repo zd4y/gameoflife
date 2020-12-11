@@ -1,2 +1,3 @@
 start: martes 8 at 22:15:30
 end: viernes 11 at 12:53:37
+converted to composition over inheritance (end): viernes 11 at 14:44
