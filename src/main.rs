@@ -1,6 +1,5 @@
-extern crate termion;
-
 use std::io::{stdin, stdout, Read, Write};
+
 use termion::event::{Event, Key, MouseButton, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
