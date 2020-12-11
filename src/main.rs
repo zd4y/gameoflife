@@ -1,16 +1,11 @@
 extern crate termion;
 
-use std::{
-    cmp::Ordering,
-    io::{stdin, stdout, Read, Write},
-};
+use std::io::{stdin, stdout, Read, Write};
+use termion::event::{Event, Key, MouseButton, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
+use termion::screen::AlternateScreen;
 use termion::{clear, color, cursor, style};
-use termion::{
-    event::{Event, Key, MouseButton, MouseEvent},
-    screen::AlternateScreen,
-};
 
 #[derive(Debug)]
 enum CellKind {
@@ -120,48 +115,6 @@ impl Game {
         let cell = self.find_cell_at_pos_mut(x, y)?;
         cell.die();
         Some(())
-    }
-
-    fn resize(&mut self, width: u16, height: u16) {
-        let len = self.cells.len() as u16;
-        let width_len = self.cells[0].len() as u16;
-        match len.cmp(&height) {
-            Ordering::Less => {
-                for y in len..height {
-                    let mut row = vec![];
-                    for x in 0..width_len {
-                        let cell = Cell::new(x, y);
-                        row.push(cell);
-                    }
-                    self.cells.push(row);
-                }
-            }
-            Ordering::Greater => {
-                for _ in 0..(len - height) {
-                    self.cells.pop();
-                }
-            }
-            Ordering::Equal => (),
-        }
-
-        match width_len.cmp(&width) {
-            Ordering::Less => {
-                for (y, row) in self.cells.iter_mut().enumerate() {
-                    for x in width_len..width {
-                        let cell = Cell::new(x, y as u16);
-                        row.push(cell);
-                    }
-                }
-            }
-            Ordering::Greater => {
-                for row in self.cells.iter_mut() {
-                    for _ in 0..(width_len - width) {
-                        row.pop();
-                    }
-                }
-            }
-            Ordering::Equal => (),
-        }
     }
 
     fn resize_if_larger(&mut self, width: u16, height: u16) {
