@@ -1,4 +1,5 @@
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{self, stdin, stdout, Read, Write};
+use std::sync::mpsc;
 
 use termion::event::{Event, Key, MouseButton, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
@@ -6,13 +7,13 @@ use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
 use termion::{clear, color, cursor, style};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum CellKind {
     Alive,
     Dead,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Cell {
     x: u16,
     y: u16,
@@ -75,6 +76,16 @@ impl Game {
         Self { cells }
     }
 
+    fn cells(&self) -> Vec<(&Cell, (u16, u16))> {
+        let mut result = vec![];
+        for (y, row) in self.cells.iter().enumerate() {
+            for (x, cell) in row.iter().enumerate() {
+                result.push((cell, (x as u16, y as u16)))
+            }
+        }
+        result
+    }
+
     fn find_cell_at_pos_mut(&mut self, x: u16, y: u16) -> Option<&mut Cell> {
         let x = x as usize;
         let y = y as usize;
@@ -117,12 +128,12 @@ impl Game {
     }
 
     fn resize_if_larger(&mut self, width: u16, height: u16) {
-        let len = self.cells.len() as u16;
-        let width_len = self.cells[0].len() as u16;
-        if height > len {
-            for y in len..height {
+        let old_height = self.cells.len() as u16;
+        let old_width = self.cells[0].len() as u16;
+        if height > old_height {
+            for y in old_height..height {
                 let mut row = vec![];
-                for x in 0..width_len {
+                for x in 0..old_width {
                     let cell = Cell::new(x, y);
                     row.push(cell);
                 }
@@ -130,9 +141,9 @@ impl Game {
             }
         }
 
-        if width > width_len {
+        if width > old_width {
             for (y, row) in self.cells.iter_mut().enumerate() {
-                for x in width_len..width {
+                for x in old_width..width {
                     let cell = Cell::new(x, y as u16);
                     row.push(cell);
                 }
@@ -176,13 +187,17 @@ struct TuiGame<'a> {
 const BLACK_COLOR: color::Rgb = color::Rgb(0, 0, 0);
 const WHITE_COLOR: color::Rgb = color::Rgb(255, 255, 255);
 
+fn terminal_size() -> (u16, u16) {
+    termion::terminal_size().unwrap_or((50, 50))
+}
+
 impl<'a> TuiGame<'a> {
     fn new<R, W>(stdin: &'a mut R, stdout: &'a mut W) -> Self
     where
         R: Read,
         W: Write,
     {
-        let (width, height) = termion::terminal_size().unwrap();
+        let (width, height) = terminal_size();
         let game = Game::new(width, height);
         Self {
             game,
@@ -191,28 +206,26 @@ impl<'a> TuiGame<'a> {
         }
     }
 
-    fn run(&mut self) {
+    fn run(&mut self) -> io::Result<()> {
         writeln!(
             self.stdout,
             "{}{}{}",
             cursor::Hide,
             clear::All,
             cursor::Goto(1, 1)
-        )
-        .unwrap();
-        self.render();
-        self.stdout.flush().unwrap();
-        self.listen_events();
-        writeln!(self.stdout, "{}{}", style::Reset, cursor::Show).unwrap();
+        )?;
+        self.render()?;
+        self.stdout.flush()?;
+        self.listen_events()?;
+        writeln!(self.stdout, "{}{}", style::Reset, cursor::Show)
     }
 
-    fn listen_events(&mut self) {
+    fn listen_events(&mut self) -> io::Result<()> {
         let stdin = self.stdin.take().unwrap();
-        let events = stdin.events();
-        for event in events {
-            let event = event.unwrap();
+        for event in stdin.events() {
+            let event = event?;
             match event {
-                Event::Key(Key::Char('q')) => break,
+                Event::Key(Key::Char('q')) | Event::Key(Key::Esc) => break,
                 Event::Mouse(MouseEvent::Press(MouseButton::Left, a, b))
                 | Event::Mouse(MouseEvent::Hold(a, b)) => {
                     let x = a - 1;
@@ -224,35 +237,51 @@ impl<'a> TuiGame<'a> {
                     let y = b - 1;
                     self.kill_cell_at_pos(x, y);
                 }
-                Event::Key(Key::Right) => self.tick(),
+                Event::Key(Key::Right) => {
+                    self.tick()?;
+                }
+                Event::Key(Key::Char(' ')) => {
+                    loop {
+                        // if let Some(Ok(_)) = stdin {
+                        //     break
+                        // }
+                        self.tick()?;
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                }
                 _ => (),
             }
-            self.stdout.flush().unwrap();
+            self.stdout.flush()?;
         }
         self.stdin = Some(stdin);
+
+        Ok(())
     }
 
-    fn tick(&mut self) {
+    fn tick(&mut self) -> io::Result<()> {
         self.game.tick();
-        self.render();
+        self.render()
     }
 
-    fn render(&mut self) {
-        let (width, height) = termion::terminal_size().unwrap();
+    fn render(&mut self) -> io::Result<()> {
+        let (width, height) = terminal_size();
         self.game.resize_if_larger(width, height);
+        writeln!(self.stdout, "{}", cursor::Goto(1, 1))?;
 
-        writeln!(self.stdout, "{}", cursor::Goto(1, 1)).unwrap();
-        for (a, row) in self.game.cells.iter().enumerate() {
-            let y = (a + 1) as u16;
-            for (b, cell) in row.iter().enumerate() {
-                let x = (b + 1) as u16;
-                let color = match cell.is_alive() {
-                    true => WHITE_COLOR,
-                    false => BLACK_COLOR,
-                };
-                write!(self.stdout, "{}{} ", cursor::Goto(x, y), color::Bg(color)).unwrap();
-            }
+        for (cell, (x, y)) in self.game.cells() {
+            let color = match cell.is_alive() {
+                true => WHITE_COLOR,
+                false => BLACK_COLOR,
+            };
+            write!(
+                self.stdout,
+                "{}{} ",
+                cursor::Goto(x + 1, y + 1),
+                color::Bg(color)
+            )?;
         }
+
+        Ok(())
     }
 
     fn revive_cell_at_pos(&mut self, x: u16, y: u16) -> Option<()> {
@@ -307,12 +336,53 @@ where
         .map_or(0, |slice| slice.iter().filter(|t| filter(*t)).count())
 }
 
-fn main() {
+fn main() -> io::Result<()> {
     let mut stdin = stdin();
-    let stdout = stdout().into_raw_mode().unwrap();
+    let stdout = stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
     let mut stdout = AlternateScreen::from(stdout);
 
     let mut game = TuiGame::new(&mut stdin, &mut stdout);
-    game.run();
+    game.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn it_resizes_if_larger() {
+        let mut game = Game {
+            cells: vec![
+                vec![Cell::new(0, 0), Cell::new(1, 0), Cell::new(2, 0)],
+                vec![Cell::new(0, 1), Cell::new(1, 1), Cell::new(2, 1)],
+            ],
+        };
+
+        game.resize_if_larger(4, 3);
+
+        assert_eq!(
+            game.cells,
+            vec![
+                vec![
+                    Cell::new(0, 0),
+                    Cell::new(1, 0),
+                    Cell::new(2, 0),
+                    Cell::new(3, 0)
+                ],
+                vec![
+                    Cell::new(0, 1),
+                    Cell::new(1, 1),
+                    Cell::new(2, 1),
+                    Cell::new(3, 1)
+                ],
+                vec![
+                    Cell::new(0, 2),
+                    Cell::new(1, 2),
+                    Cell::new(2, 2),
+                    Cell::new(3, 2)
+                ]
+            ]
+        )
+    }
 }
