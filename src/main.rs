@@ -1,10 +1,10 @@
-use std::io::{self, stdout, Read, Write};
+use std::io::{self, stdout, Write};
 
 use termion::event::{Event, Key, MouseButton, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
-use termion::{clear, color, cursor, style, async_stdin};
+use termion::{async_stdin, clear, color, cursor, style, AsyncReader};
 
 #[derive(Debug, PartialEq)]
 enum CellKind {
@@ -179,7 +179,7 @@ impl Game {
 
 struct TuiGame<'a> {
     game: Game,
-    stdin: Option<&'a mut dyn Read>,
+    stdin: Option<&'a mut AsyncReader>,
     stdout: &'a mut dyn Write,
 }
 
@@ -191,11 +191,7 @@ fn terminal_size() -> (u16, u16) {
 }
 
 impl<'a> TuiGame<'a> {
-    fn new<R, W>(stdin: &'a mut R, stdout: &'a mut W) -> Self
-    where
-        R: Read,
-        W: Write,
-    {
+    fn new<W: Write>(stdin: &'a mut AsyncReader, stdout: &'a mut W) -> Self {
         let (width, height) = terminal_size();
         let game = Game::new(width, height);
         Self {
