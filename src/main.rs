@@ -1,11 +1,10 @@
-use std::io::{self, stdin, stdout, Read, Write};
-use std::sync::mpsc;
+use std::io::{self, stdout, Read, Write};
 
 use termion::event::{Event, Key, MouseButton, MouseEvent};
 use termion::input::{MouseTerminal, TermRead};
 use termion::raw::IntoRawMode;
 use termion::screen::AlternateScreen;
-use termion::{clear, color, cursor, style};
+use termion::{clear, color, cursor, style, async_stdin};
 
 #[derive(Debug, PartialEq)]
 enum CellKind {
@@ -216,45 +215,48 @@ impl<'a> TuiGame<'a> {
         )?;
         self.render()?;
         self.stdout.flush()?;
-        self.listen_events()?;
+        self.start_loop()?;
+        // self.listen_events()?;
         writeln!(self.stdout, "{}{}", style::Reset, cursor::Show)
     }
 
-    fn listen_events(&mut self) -> io::Result<()> {
-        let stdin = self.stdin.take().unwrap();
-        for event in stdin.events() {
-            let event = event?;
-            match event {
-                Event::Key(Key::Char('q')) | Event::Key(Key::Esc) => break,
-                Event::Mouse(MouseEvent::Press(MouseButton::Left, a, b))
-                | Event::Mouse(MouseEvent::Hold(a, b)) => {
-                    let x = a - 1;
-                    let y = b - 1;
-                    self.revive_cell_at_pos(x, y);
-                }
-                Event::Mouse(MouseEvent::Press(MouseButton::Right, a, b)) => {
-                    let x = a - 1;
-                    let y = b - 1;
-                    self.kill_cell_at_pos(x, y);
-                }
-                Event::Key(Key::Right) => {
-                    self.tick()?;
-                }
-                Event::Key(Key::Char(' ')) => {
-                    loop {
-                        // if let Some(Ok(_)) = stdin {
-                        //     break
-                        // }
-                        self.tick()?;
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+    fn start_loop(&mut self) -> io::Result<()> {
+        let mut playing = false;
+        'outer: loop {
+            let stdin = self.stdin.take().unwrap();
+            for event in stdin.events() {
+                let event = event?;
+                match event {
+                    Event::Key(Key::Char('q')) | Event::Key(Key::Esc) => break 'outer,
+                    Event::Mouse(MouseEvent::Press(MouseButton::Left, a, b))
+                    | Event::Mouse(MouseEvent::Hold(a, b)) => {
+                        let x = a - 1;
+                        let y = b - 1;
+                        self.revive_cell_at_pos(x, y);
                     }
+                    Event::Mouse(MouseEvent::Press(MouseButton::Right, a, b)) if !playing => {
+                        let x = a - 1;
+                        let y = b - 1;
+                        self.kill_cell_at_pos(x, y);
+                    }
+                    Event::Key(Key::Right) if !playing => {
+                        self.tick()?;
+                    }
+                    Event::Key(Key::Char(' ')) => {
+                        playing = !playing;
+                    }
+                    _ => (),
                 }
-                _ => (),
             }
-            self.stdout.flush()?;
-        }
-        self.stdin = Some(stdin);
+            self.stdin = Some(stdin);
 
+            if playing {
+                self.tick()?;
+            }
+
+            self.stdout.flush()?;
+            std::thread::sleep(std::time::Duration::from_millis(80));
+        }
         Ok(())
     }
 
@@ -337,7 +339,7 @@ where
 }
 
 fn main() -> io::Result<()> {
-    let mut stdin = stdin();
+    let mut stdin = async_stdin();
     let stdout = stdout().into_raw_mode()?;
     let stdout = MouseTerminal::from(stdout);
     let mut stdout = AlternateScreen::from(stdout);
