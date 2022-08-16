@@ -14,6 +14,7 @@ use crossterm::{
         MouseEventKind,
     },
     execute,
+    queue,
     style::{self, Stylize},
     terminal, Result,
 };
@@ -109,12 +110,13 @@ impl<'a, W: Write> TuiGame<'a, W> {
                 true => " ".on_white(),
                 false => " ".on_black(),
             };
-            execute!(
+            queue!(
                 self.writer,
                 cursor::MoveTo(x, y),
                 style::PrintStyledContent(content)
             )?;
         }
+        self.writer.flush()?;
 
         Ok(())
     }
