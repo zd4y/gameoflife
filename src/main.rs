@@ -13,8 +13,7 @@ use crossterm::{
         self, Event, EventStream, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent,
         MouseEventKind,
     },
-    execute,
-    queue,
+    execute, queue,
     style::{self, Stylize},
     terminal, Result,
 };
@@ -65,29 +64,29 @@ impl<'a, W: Write> TuiGame<'a, W> {
                 maybe_event = reader.next() => {
                     match maybe_event {
                         Some(Ok(event)) => match event {
-                                Event::Mouse(MouseEvent { kind: MouseEventKind::Down(button) | MouseEventKind::Drag(button), column, row, modifiers: _ }) => match button {
-                                    MouseButton::Left=>{
-                                        self.revive_cell_at_pos(column,row);
-                                    },
-                                    MouseButton::Right=> {
-                                        self.kill_cell_at_pos(column,row);
-                                    },
-                                    MouseButton::Middle => ()
+                            Event::Mouse(MouseEvent { kind: MouseEventKind::Down(button) | MouseEventKind::Drag(button), column, row, modifiers: _ }) => match button {
+                                MouseButton::Left=>{
+                                    self.revive_cell_at_pos(column,row);
                                 },
-                                Event::Key(KeyEvent { code, modifiers: _, kind: KeyEventKind::Press, state: _ }) => match code {
-                                    KeyCode::Esc | KeyCode::Char('q') => break,
-                                    KeyCode::Right if !playing => {
-                                        self.tick()?;
-                                    },
-                                    KeyCode::Char(' ') => {
-                                        playing = !playing;
-                                    },
-                                    _ => ()
+                                MouseButton::Right=> {
+                                    self.kill_cell_at_pos(column,row);
+                                },
+                                MouseButton::Middle => ()
+                            },
+                            Event::Key(KeyEvent { code, modifiers: _, kind: KeyEventKind::Press, state: _ }) => match code {
+                                KeyCode::Esc | KeyCode::Char('q') => break,
+                                KeyCode::Right if !playing => {
+                                    self.tick()?;
+                                },
+                                KeyCode::Char(' ') => {
+                                    playing = !playing;
                                 },
                                 _ => ()
                             },
-                            Some(Err(err)) => return Err(err),
-                            None => ()
+                            _ => ()
+                        },
+                        Some(Err(err)) => return Err(err),
+                        None => ()
                     }
                 }
             }
