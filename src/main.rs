@@ -1,113 +1,120 @@
 mod game;
 use game::Game;
 
-use std::io::{self, stdout, Write};
+use std::io::{stdout, Write};
+use std::time::Duration;
 
-use termion::event::{Event, Key, MouseButton, MouseEvent};
-use termion::input::{MouseTerminal, TermRead};
-use termion::raw::IntoRawMode;
-use termion::screen::AlternateScreen;
-use termion::{async_stdin, clear, color, cursor, style, AsyncReader};
+use tokio::time;
+use tokio_stream::StreamExt;
 
-struct TuiGame<'a> {
+use crossterm::{
+    cursor,
+    event::{
+        self, Event, EventStream, KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent,
+        MouseEventKind,
+    },
+    execute,
+    style::{self, Stylize},
+    terminal, Result,
+};
+
+const FPS: u32 = 6;
+
+struct TuiGame<'a, W: Write> {
     game: Game,
-    stdin: Option<&'a mut AsyncReader>,
-    stdout: &'a mut dyn Write,
+    writer: &'a mut W,
 }
-
-const BLACK_COLOR: color::Rgb = color::Rgb(0, 0, 0);
-const WHITE_COLOR: color::Rgb = color::Rgb(255, 255, 255);
 
 fn terminal_size() -> (u16, u16) {
-    termion::terminal_size().unwrap_or((50, 50))
+    terminal::size().unwrap_or((50, 30))
 }
 
-impl<'a> TuiGame<'a> {
-    fn new<W: Write>(stdin: &'a mut AsyncReader, stdout: &'a mut W) -> Self {
+impl<'a, W: Write> TuiGame<'a, W> {
+    fn new(writer: &'a mut W) -> Self {
         let (width, height) = terminal_size();
         let game = Game::new(width, height);
-        Self {
-            game,
-            stdin: Some(stdin),
-            stdout,
-        }
+        Self { game, writer }
     }
 
-    fn run(&mut self) -> io::Result<()> {
-        writeln!(
-            self.stdout,
-            "{}{}{}",
+    async fn run(&mut self) -> Result<()> {
+        execute!(
+            self.writer,
             cursor::Hide,
-            clear::All,
-            cursor::Goto(1, 1)
+            terminal::Clear(terminal::ClearType::All),
+            cursor::MoveTo(0, 0)
         )?;
         self.render()?;
-        self.stdout.flush()?;
-        self.start_loop()?;
+        self.run_loop().await?;
         // self.listen_events()?;
-        writeln!(self.stdout, "{}{}", style::Reset, cursor::Show)
+        execute!(self.writer, style::ResetColor, cursor::Show)
     }
 
-    fn start_loop(&mut self) -> io::Result<()> {
+    async fn run_loop(&mut self) -> Result<()> {
+        let mut reader = EventStream::new();
         let mut playing = false;
-        'outer: loop {
-            let stdin = self.stdin.take().unwrap();
-            for event in stdin.events() {
-                let event = event?;
-                match event {
-                    Event::Key(Key::Char('q')) | Event::Key(Key::Esc) => break 'outer,
-                    Event::Mouse(MouseEvent::Press(MouseButton::Left, a, b))
-                    | Event::Mouse(MouseEvent::Hold(a, b)) => {
-                        let x = a - 1;
-                        let y = b - 1;
-                        self.revive_cell_at_pos(x, y);
-                    }
-                    Event::Mouse(MouseEvent::Press(MouseButton::Right, a, b)) if !playing => {
-                        let x = a - 1;
-                        let y = b - 1;
-                        self.kill_cell_at_pos(x, y);
-                    }
-                    Event::Key(Key::Right) if !playing => {
+
+        loop {
+            let interval = time::sleep(Duration::from_secs(1) / FPS);
+            let event = reader.next();
+
+            tokio::select! {
+                _ = interval => {
+                    if playing {
                         self.tick()?;
                     }
-                    Event::Key(Key::Char(' ')) => {
-                        playing = !playing;
+                }
+                maybe_event = event => {
+                    match maybe_event {
+                        Some(Ok(event)) => match event {
+                                Event::Mouse(MouseEvent { kind: MouseEventKind::Down(button) | MouseEventKind::Drag(button), column, row, modifiers: _ }) => match button {
+                                    MouseButton::Left=>{
+                                        self.revive_cell_at_pos(column,row);
+                                    },
+                                    MouseButton::Right=> {
+                                        self.kill_cell_at_pos(column,row);
+                                    },
+                                    MouseButton::Middle => ()
+                                },
+                                Event::Key(KeyEvent { code, modifiers: _, kind: KeyEventKind::Press, state: _ }) => match code {
+                                    KeyCode::Esc | KeyCode::Char('q') => break,
+                                    KeyCode::Right if !playing => {
+                                        self.tick()?;
+                                    },
+                                    KeyCode::Char(' ') => {
+                                        playing = !playing;
+                                    },
+                                    _ => ()
+                                },
+                                _ => ()
+                            },
+                            Some(Err(err)) => return Err(err),
+                            None => ()
                     }
-                    _ => (),
                 }
             }
-            self.stdin = Some(stdin);
-
-            if playing {
-                self.tick()?;
-            }
-
-            self.stdout.flush()?;
-            std::thread::sleep(std::time::Duration::from_millis(80));
         }
         Ok(())
     }
 
-    fn tick(&mut self) -> io::Result<()> {
+    fn tick(&mut self) -> Result<()> {
         self.game.tick();
         self.render()
     }
 
-    fn render(&mut self) -> io::Result<()> {
+    fn render(&mut self) -> Result<()> {
         let (width, height) = terminal_size();
         self.game.resize_if_larger(width, height);
-        writeln!(self.stdout, "{}", cursor::Goto(1, 1))?;
+        execute!(self.writer, cursor::MoveTo(0, 0))?;
 
         for (cell, (x, y)) in self.game.cells() {
-            let color = match cell.is_alive() {
-                true => WHITE_COLOR,
-                false => BLACK_COLOR,
+            let content = match cell.is_alive() {
+                true => " ".on_white(),
+                false => " ".on_black(),
             };
-            write!(
-                self.stdout,
-                "{}{} ",
-                cursor::Goto(x + 1, y + 1),
-                color::Bg(color)
+            execute!(
+                self.writer,
+                cursor::MoveTo(x, y),
+                style::PrintStyledContent(content)
             )?;
         }
 
@@ -117,11 +124,10 @@ impl<'a> TuiGame<'a> {
     fn revive_cell_at_pos(&mut self, x: u16, y: u16) -> Option<()> {
         self.game.revive_cell_at_pos(x, y)?;
 
-        write!(
-            self.stdout,
-            "{}{} ",
-            cursor::Goto(x + 1, y + 1),
-            color::Bg(WHITE_COLOR)
+        execute!(
+            self.writer,
+            cursor::MoveTo(x, y),
+            style::PrintStyledContent(" ".on_white())
         )
         .unwrap();
 
@@ -131,11 +137,10 @@ impl<'a> TuiGame<'a> {
     fn kill_cell_at_pos(&mut self, x: u16, y: u16) -> Option<()> {
         self.game.kill_cell_at_pos(x, y)?;
 
-        write!(
-            self.stdout,
-            "{}{} ",
-            cursor::Goto(x + 1, y + 1),
-            color::Bg(BLACK_COLOR)
+        execute!(
+            self.writer,
+            cursor::MoveTo(x, y),
+            style::PrintStyledContent(" ".on_black())
         )
         .unwrap();
 
@@ -143,12 +148,24 @@ impl<'a> TuiGame<'a> {
     }
 }
 
-fn main() -> io::Result<()> {
-    let mut stdin = async_stdin();
-    let stdout = stdout().into_raw_mode()?;
-    let stdout = MouseTerminal::from(stdout);
-    let mut stdout = AlternateScreen::from(stdout);
+#[tokio::main]
+async fn main() -> Result<()> {
+    terminal::enable_raw_mode()?;
 
-    let mut game = TuiGame::new(&mut stdin, &mut stdout);
-    game.run()
+    let mut stdout = stdout();
+    execute!(
+        stdout,
+        terminal::EnterAlternateScreen,
+        event::EnableMouseCapture
+    )?;
+
+    TuiGame::new(&mut stdout).run().await?;
+
+    execute!(
+        stdout,
+        terminal::LeaveAlternateScreen,
+        event::DisableMouseCapture
+    )?;
+
+    terminal::disable_raw_mode()
 }
