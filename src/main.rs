@@ -50,20 +50,18 @@ impl<'a, W: Write> TuiGame<'a, W> {
     }
 
     async fn run_loop(&mut self) -> Result<()> {
-        let mut reader = EventStream::new();
         let mut playing = false;
+        let mut reader = EventStream::new();
+        let mut interval = time::interval(Duration::from_secs(1) / FPS);
 
         loop {
-            let interval = time::sleep(Duration::from_secs(1) / FPS);
-            let event = reader.next();
-
             tokio::select! {
-                _ = interval => {
+                _ = interval.tick() => {
                     if playing {
                         self.tick()?;
                     }
                 }
-                maybe_event = event => {
+                maybe_event = reader.next() => {
                     match maybe_event {
                         Some(Ok(event)) => match event {
                                 Event::Mouse(MouseEvent { kind: MouseEventKind::Down(button) | MouseEventKind::Drag(button), column, row, modifiers: _ }) => match button {
