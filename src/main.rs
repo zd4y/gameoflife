@@ -45,7 +45,6 @@ impl<'a, W: Write> TuiGame<'a, W> {
         )?;
         self.render()?;
         self.run_loop().await?;
-        // self.listen_events()?;
         execute!(self.writer, style::ResetColor, cursor::Show)
     }
 
@@ -75,7 +74,7 @@ impl<'a, W: Write> TuiGame<'a, W> {
                             },
                             Event::Key(KeyEvent { code, modifiers: _, kind: KeyEventKind::Press, state: _ }) => match code {
                                 KeyCode::Esc | KeyCode::Char('q') => break,
-                                KeyCode::Right if !playing => {
+                                KeyCode::Right => {
                                     self.tick()?;
                                 },
                                 KeyCode::Char(' ') => {
