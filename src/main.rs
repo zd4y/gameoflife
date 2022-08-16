@@ -4,7 +4,7 @@ use game::Game;
 use std::io::{stdout, Write};
 use std::time::Duration;
 
-use tokio::time;
+use tokio::time::{self, Instant};
 use tokio_stream::StreamExt;
 
 use crossterm::{
@@ -18,7 +18,7 @@ use crossterm::{
     terminal, Result,
 };
 
-const FPS: u32 = 6;
+const DEFAULT_FPS: f32 = 6.0;
 
 struct TuiGame<'a, W: Write> {
     game: Game,
@@ -49,9 +49,10 @@ impl<'a, W: Write> TuiGame<'a, W> {
     }
 
     async fn run_loop(&mut self) -> Result<()> {
+        let mut fps = DEFAULT_FPS;
         let mut playing = false;
         let mut reader = EventStream::new();
-        let mut interval = time::interval(Duration::from_secs(1) / FPS);
+        let mut interval = self.interval(fps);
 
         loop {
             tokio::select! {
@@ -77,6 +78,18 @@ impl<'a, W: Write> TuiGame<'a, W> {
                                 KeyCode::Right => {
                                     self.tick()?;
                                 },
+                                KeyCode::Up => {
+                                    fps *= 1.2;
+                                    interval = self.interval(fps);
+                                },
+                                KeyCode::Char('r') => {
+                                    fps = DEFAULT_FPS;
+                                    interval = self.interval(fps);
+                                }
+                                KeyCode::Down => {
+                                    fps /= 1.2;
+                                    interval = self.interval(fps);
+                                }
                                 KeyCode::Char(' ') => {
                                     playing = !playing;
                                 },
@@ -91,6 +104,15 @@ impl<'a, W: Write> TuiGame<'a, W> {
             }
         }
         Ok(())
+    }
+
+    fn interval(&self, with_fps: f32) -> time::Interval {
+        let duration = if with_fps > 1.0 {
+            Duration::from_secs(1) / with_fps.round() as u32
+        } else {
+            Duration::from_secs(1) * (1.0 / with_fps).round() as u32
+        };
+        time::interval_at(Instant::now() + duration, duration)
     }
 
     fn tick(&mut self) -> Result<()> {
